@@ -1,0 +1,43 @@
+.env
+.venv/
+venv/
+env/
+
+# Output files
+outputs/*.csv
+outputs/*.jsonl
+*.csv
+*.jsonl
+parcel_embeddings.jsonl
+
+# Benchmark results
+*benchmark*.csv
+*results*.csv
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Model cache (large files)
+.cache/
+models/
