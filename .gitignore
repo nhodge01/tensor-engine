@@ -1,43 +1,67 @@
-.env
-.venv/
-venv/
-env/
+# --- Prerequisites ---
+*.d
 
-# Output files
-outputs/*.csv
-outputs/*.jsonl
-*.csv
-*.jsonl
-parcel_embeddings.jsonl
+# --- Compiled Object files ---
+*.slo
+*.lo
+*.o
+*.obj
 
-# Benchmark results
-*benchmark*.csv
-*results*.csv
+# --- Precompiled headers ---
+*.gch
+*.pch
 
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
-*.so
-.Python
-*.egg-info/
-dist/
-build/
+# --- Compiled Libraries ---
+*.lib
+*.a
+*.la
+*.lo
 
-# IDE
+# --- Compiled Executables ---
+*.exe
+*.out
+*.app
+*.i*86
+*.x86_64
+*.hex
+
+# --- Debug symbols ---
+*.pdb
+*.ilk
+*.exp
+
+# --- Build Directories ---
+[Bb]uild/
+bin/
+obj/
+out/
+
+# --- IDE Specifics ---
+# Visual Studio
+.vs/
+*.user
+*.sln
+*.vcxproj
+*.filters
+
+# VS Code
 .vscode/
-.idea/
-*.swp
-*.swo
-*~
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
 
-# OS
+# CLion / JetBrains
+.idea/
+cmake-build-*/
+
+# Xcode
+*.xcodeproj/
+*.xcworkspace/
+
+# --- Operating System Files ---
 .DS_Store
 Thumbs.db
 
-# Logs
-*.log
-
-# Model cache (large files)
-.cache/
-models/
+# --- Package Managers ---
+vcpkg_installed/
+conan/
