@@ -7,6 +7,7 @@ set(CMAKE_CUDA_STANDARD 17)
 set(CMAKE_CUDA_ARCHITECTURES 89)
 
 find_package(Threads REQUIRED)
+find_package(OpenMP REQUIRED)
 
 find_library(NVINFER_LIB nvinfer)
 find_path(NVINFER_INC NvInfer.h)
@@ -28,4 +29,5 @@ target_link_libraries(embed_test
     cudart
     dl
     pthread
+    OpenMP::OpenMP_CXX
 )
