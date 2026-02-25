@@ -67,3 +67,4 @@ vcpkg_installed/
 conan/
 
 .venv/
+.env
