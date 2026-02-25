@@ -22,7 +22,7 @@ add_executable(embed_test main.cu) # Point to the new .cu file
 
 target_include_directories(embed_test PRIVATE ${NVINFER_INC})
 
-target_link_libraries(embed_test 
+target_link_libraries(embed_test
     ${NVINFER_LIB}
     tokenizers_cpp
     tokenizers_c
@@ -30,4 +30,14 @@ target_link_libraries(embed_test
     dl
     pthread
     OpenMP::OpenMP_CXX
+)
+
+# Tokenizer benchmark executable
+add_executable(tokenize_bench tokenize_bench.cpp)
+
+target_link_libraries(tokenize_bench
+    tokenizers_cpp
+    tokenizers_c
+    OpenMP::OpenMP_CXX
+    pthread
 )
