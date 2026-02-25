@@ -68,3 +68,5 @@ conan/
 
 .venv/
 .env
+
+onnx/*
