@@ -2,6 +2,7 @@
 
 #include <vector>
 #include <string>
+#include <string_view>
 #include <iostream>
 #include <cuda_runtime_api.h>
 
@@ -9,7 +10,7 @@ struct BatchJob {
   int batch_id;
   int valid_items;
   std::vector<int64_t> row_ids;
-  std::vector<std::string> raw_texts;
+  std::vector<std::string_view> raw_texts;  // ZERO-COPY: Just pointers into DuckDB's memory!
 
   int32_t* pinned_input_ids;
   int32_t* pinned_attention_mask;

@@ -68,6 +68,30 @@ conan/
 
 .venv/
 .env
+.env.local
+config/.env.ducklake
 
+# CUDA/TensorRT specific
+*.cubin
+*.fatbin
+*.ptx
+*.engine.cache
+*.nvprof
+*.nsys-rep
+*.qdrep
+*.sqlite
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Temporary files
+*.tmp
+*.temp
+tmp/
+temp/
+
+# Keep model directories but ignore contents
 onnx/*
 engines/*
