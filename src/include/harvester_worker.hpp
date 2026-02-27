@@ -135,22 +135,43 @@ private:
     int embedding_dim_;
 };
 
-// Forward declarations - implementations in harvester_worker.cpp
-std::thread CreateHarvesterThread(
+// Inline function implementations (header-only)
+inline void harvester_worker_s3(ThreadSafeQueue<BatchJob*>& harvester_queue,
+                                ThreadSafeQueue<BatchJob*>& free_queue,
+                                std::atomic<int>& total_queries_processed,
+                                const std::string& output_path,
+                                int embedding_dim = 384) {
+    HarvesterWorker worker(harvester_queue, free_queue, total_queries_processed, output_path, embedding_dim);
+    worker.Run();
+}
+
+inline void harvester_worker(ThreadSafeQueue<BatchJob*>& harvester_queue,
+                            ThreadSafeQueue<BatchJob*>& free_queue,
+                            std::atomic<int>& total_queries_processed,
+                            int embedding_dim = 384) {
+    HarvesterWorker worker(harvester_queue, free_queue, total_queries_processed, "", embedding_dim);
+    worker.RunMemoryOnly();
+}
+
+inline std::thread CreateHarvesterThread(
     ThreadSafeQueue<BatchJob*>& harvester_queue,
     ThreadSafeQueue<BatchJob*>& free_queue,
     std::atomic<int>& total_queries_processed,
     const std::string& output_path = "",
-    bool use_s3 = true);
-
-void harvester_worker(ThreadSafeQueue<BatchJob*>& harvester_queue,
-                     ThreadSafeQueue<BatchJob*>& free_queue,
-                     std::atomic<int>& total_queries_processed);
-
-void harvester_worker_s3(ThreadSafeQueue<BatchJob*>& harvester_queue,
-                        ThreadSafeQueue<BatchJob*>& free_queue,
-                        std::atomic<int>& total_queries_processed,
-                        const std::string& output_path);
+    bool use_s3 = true,
+    int embedding_dim = 384) {
+    if (use_s3 && !output_path.empty()) {
+        return std::thread([&harvester_queue, &free_queue, &total_queries_processed, output_path, embedding_dim]() {
+            HarvesterWorker harvester(harvester_queue, free_queue, total_queries_processed, output_path, embedding_dim);
+            harvester.Run();
+        });
+    } else {
+        return std::thread([&harvester_queue, &free_queue, &total_queries_processed, embedding_dim]() {
+            HarvesterWorker harvester(harvester_queue, free_queue, total_queries_processed, "", embedding_dim);
+            harvester.RunMemoryOnly();
+        });
+    }
+}
 
 } // namespace acrelab
 

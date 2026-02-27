@@ -61,8 +61,7 @@ link_directories(${DUCKDB_DIR})
 # Main executable - now using main.cpp instead of main.cu
 add_executable(embed_test
     src/core/main.cpp  # Changed from .cu to .cpp
-    src/core/arrow_parquet_writer.cpp
-    src/core/harvester_worker.cpp
+    # arrow_parquet_writer and harvester_worker are now header-only
 )
 
 target_include_directories(embed_test PRIVATE
@@ -108,53 +107,6 @@ target_link_libraries(embed_test
     z
 )
 
-# Tokenizer benchmark executable
-add_executable(tokenize_bench src/benchmarks/tokenize_bench.cpp)
-
-target_link_libraries(tokenize_bench
-    tokenizers_cpp
-    tokenizers_c
-    OpenMP::OpenMP_CXX
-    pthread
-)
-
-# Sink benchmark executable (only if Arrow is available)
-if(Arrow_FOUND AND Parquet_FOUND)
-    add_executable(sink_benchmark src/benchmarks/sink_benchmark.cpp)
-
-    target_link_libraries(sink_benchmark
-        pthread
-        OpenMP::OpenMP_CXX
-        parquet
-        arrow
-        thrift
-        snappy
-        aws-cpp-sdk-s3
-        aws-cpp-sdk-core
-        aws-cpp-sdk-identity-management
-        aws-cpp-sdk-sts
-        aws-cpp-sdk-cognito-identity
-        aws-crt-cpp
-        aws-c-s3
-        aws-c-auth
-        aws-c-event-stream
-        aws-c-http
-        aws-c-io
-        aws-c-mqtt
-        aws-c-cal
-        aws-c-compression
-        aws-c-sdkutils
-        aws-checksums
-        aws-c-common
-        s2n
-        crypto
-        ssl
-        curl
-        z
-    )
-    message(STATUS "sink_benchmark will be built (Arrow found)")
-else()
-    message(STATUS "sink_benchmark will NOT be built (Arrow not found)")
-endif()
+# Benchmarks removed - source files no longer exist
 
 # Note: Removed test_cuda_kernels since we no longer have custom CUDA kernels
