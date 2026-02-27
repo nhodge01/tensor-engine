@@ -31,10 +31,10 @@ struct BatchJob {
     int total_tokens = max_batch_size * seq_len;
     int total_floats = max_batch_size * hidden_dim;
 
-    if (cudaHostAlloc(&pinned_input_ids, total_tokens * sizeof(int32_t), cudaHostAllocDefault) != cudaSuccess ||
-        cudaHostAlloc(&pinned_attention_mask, total_tokens * sizeof(int32_t), cudaHostAllocDefault) != cudaSuccess ||
-        cudaHostAlloc(&pinned_token_type_ids, total_tokens * sizeof(int32_t), cudaHostAllocDefault) != cudaSuccess ||
-        cudaHostAlloc(&pinned_embeddings, total_floats * sizeof(float), cudaHostAllocDefault) != cudaSuccess)
+    if (cudaHostAlloc((void**)&pinned_input_ids, total_tokens * sizeof(int32_t), cudaHostAllocDefault) != cudaSuccess ||
+        cudaHostAlloc((void**)&pinned_attention_mask, total_tokens * sizeof(int32_t), cudaHostAllocDefault) != cudaSuccess ||
+        cudaHostAlloc((void**)&pinned_token_type_ids, total_tokens * sizeof(int32_t), cudaHostAllocDefault) != cudaSuccess ||
+        cudaHostAlloc((void**)&pinned_embeddings, total_floats * sizeof(float), cudaHostAllocDefault) != cudaSuccess)
     {
       std::cerr << "[FATAL] Failed to allocate pinned memory for BatchJob " << batch_id << std::endl;
       exit(1);

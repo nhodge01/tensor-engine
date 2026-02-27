@@ -12,10 +12,12 @@
 #include "tokenizer_wrapper.hpp"
 #include "tokenizer_worker.hpp"
 #include "cuda_kernels.cuh"
+#include "harvester_worker_fwd.hpp"
 #include "threadsafequeue.hpp"
 #include "batch_job.hpp"
 #include <duckdb.hpp>
 #include "lake.h"
+#include "env_loader.hpp"
 
 
 
@@ -242,9 +244,10 @@ void gpu_worker(int gpu_id, const std::vector<char>& engine_data,
 }
 
 
-void harvester_worker(ThreadSafeQueue<BatchJob*>& harvester_queue,
-                      ThreadSafeQueue<BatchJob*>& free_queue,
-                      std::atomic<int>& total_queries_processed) {
+// Original memory-only harvester (for benchmarking without I/O)
+void harvester_worker_memory_only(ThreadSafeQueue<BatchJob*>& harvester_queue,
+                                  ThreadSafeQueue<BatchJob*>& free_queue,
+                                  std::atomic<int>& total_queries_processed) {
     BatchJob* job;
 
     while (harvester_queue.wait_and_loop(job)) {
@@ -257,9 +260,34 @@ void harvester_worker(ThreadSafeQueue<BatchJob*>& harvester_queue,
     }
 }
 
+// S3-enabled harvester worker using the new header
+void harvester_worker(ThreadSafeQueue<BatchJob*>& harvester_queue,
+                      ThreadSafeQueue<BatchJob*>& free_queue,
+                      std::atomic<int>& total_queries_processed) {
+
+    // Check if we should write to S3
+    const char* enable_s3 = std::getenv("ENABLE_S3_OUTPUT");
+
+    // Hardcoded output path for now
+    const std::string output_path = "REDACTED_BUCKET/REDACTED_PATH";
+
+    if (enable_s3 && std::string(enable_s3) == "1") {
+        // Use S3 output
+        std::cout << "Harvester: S3 output enabled, writing to " << output_path << std::endl;
+        acrelab::harvester_worker_s3(harvester_queue, free_queue, total_queries_processed, output_path);
+    } else {
+        // Fallback to memory-only mode
+        std::cout << "Harvester: Running in memory-only mode (set ENABLE_S3_OUTPUT=1 for S3)" << std::endl;
+        harvester_worker_memory_only(harvester_queue, free_queue, total_queries_processed);
+    }
+}
+
 
 
 int main() {
+    // Load environment from .env.ducklake file
+    acrelab::EnvLoader::LoadEnvFile(".env.ducklake", true);
+
     auto program_start = std::chrono::high_resolution_clock::now();
 
     std::cout << "=== ZERO-COPY DUAL-GPU PIPELINE ===" << std::endl;
@@ -333,6 +361,16 @@ int main() {
     auto query_start = std::chrono::high_resolution_clock::now();
 
     auto result = conn.Query(R"(
+        WITH state_filter AS (
+            -- STEP 1: Scan ONLY the state column to find the right rows
+            SELECT gid,
+                   standard_owner_1_first_last_name,
+                   standard_owner_2_first_last_name,
+                   standard_mail_address
+            FROM lake.desoto_jrrtolkein.consolidated_parcel
+            WHERE state IN ('RI', 'AR')
+        )
+        -- STEP 2: Only do the heavy string concatenation on the 2.5M surviving rows
         SELECT
             CAST(gid as BIGINT) AS gid,
             concat_ws(' ',
@@ -340,10 +378,10 @@ int main() {
                 standard_owner_2_first_last_name,
                 standard_mail_address
             ) AS text
-        FROM lake.desoto_jrrtolkein.consolidated_parcel
-            WHERE (standard_owner_1_first_last_name IS NOT NULL
-                OR standard_owner_2_first_last_name IS NOT NULL
-                OR standard_mail_address IS NOT NULL)
+        FROM state_filter
+        WHERE (standard_owner_1_first_last_name IS NOT NULL
+            OR standard_owner_2_first_last_name IS NOT NULL
+            OR standard_mail_address IS NOT NULL)
     )");
 
     double query_ms = std::chrono::duration_cast<std::chrono::milliseconds>(

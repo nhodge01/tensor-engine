@@ -58,7 +58,12 @@ set(DUCKDB_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../acrelab-gauss-cpp/build/_deps/duc
 include_directories(${DUCKDB_DIR})
 link_directories(${DUCKDB_DIR})
 
-add_executable(embed_test src/core/main.cu src/core/lake.cpp) # Include lake.cpp
+add_executable(embed_test
+    src/core/main.cu
+    src/core/lake.cpp
+    src/core/arrow_parquet_writer.cpp
+    src/core/harvester_worker.cpp
+) # Include all core components
 
 target_include_directories(embed_test PRIVATE ${NVINFER_INC})
 
@@ -71,6 +76,33 @@ target_link_libraries(embed_test
     dl
     pthread
     OpenMP::OpenMP_CXX
+    # Arrow/Parquet/S3 dependencies
+    parquet
+    arrow
+    thrift
+    snappy
+    aws-cpp-sdk-s3
+    aws-cpp-sdk-core
+    aws-cpp-sdk-identity-management
+    aws-cpp-sdk-sts
+    aws-cpp-sdk-cognito-identity
+    aws-crt-cpp
+    aws-c-s3
+    aws-c-auth
+    aws-c-event-stream
+    aws-c-http
+    aws-c-io
+    aws-c-mqtt
+    aws-c-cal
+    aws-c-compression
+    aws-c-sdkutils
+    aws-checksums
+    aws-c-common
+    s2n
+    crypto
+    ssl
+    curl
+    z
 )
 
 # Link Arrow/Parquet if found (commented out - using static libs instead)
