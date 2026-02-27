@@ -1,0 +1,9 @@
+{
+  "embedding_dim": 384,
+  "max_tokens": 32,
+  "batch_size": 256,
+  "engine_path": "engines/all-MiniLM-L6-v2/fp16/batch256_seq32_pooled.engine",
+  "vocab_path": "onnx/all-MiniLM-L6-v2/tokenizer.json",
+  "model_name": "sentence-transformers/all-MiniLM-L6-v2",
+  "onnx_path": "onnx/all-minilm-l6-v2/model_pooled.onnx"
+}

@@ -89,7 +89,7 @@ void spigot_worker(duckdb::unique_ptr<duckdb::MaterializedQueryResult>& result,
 
 int main() {
     // Load environment variables
-    acrelab::EnvLoader::LoadEnvFile(".env.ducklake", true);
+    acrelab::EnvLoader::LoadEnvFile(".env", true);
 
     auto program_start = std::chrono::high_resolution_clock::now();
 
