@@ -95,3 +95,4 @@ temp/
 # Keep model directories but ignore contents
 onnx/*
 engines/*
+deps/*
