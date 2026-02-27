@@ -1,43 +1,98 @@
-.env
+# --- Prerequisites ---
+*.d
+
+# --- Compiled Object files ---
+*.slo
+*.lo
+*.o
+*.obj
+
+# --- Precompiled headers ---
+*.gch
+*.pch
+
+# --- Compiled Libraries ---
+*.lib
+*.a
+*.la
+*.lo
+
+# --- Compiled Executables ---
+*.exe
+*.out
+*.app
+*.i*86
+*.x86_64
+*.hex
+
+# --- Debug symbols ---
+*.pdb
+*.ilk
+*.exp
+
+# --- Build Directories ---
+[Bb]uild/
+bin/
+obj/
+out/
+
+# --- IDE Specifics ---
+# Visual Studio
+.vs/
+*.user
+*.sln
+*.vcxproj
+*.filters
+
+# VS Code
+.vscode/
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+
+# CLion / JetBrains
+.idea/
+cmake-build-*/
+
+# Xcode
+*.xcodeproj/
+*.xcworkspace/
+
+# --- Operating System Files ---
+.DS_Store
+Thumbs.db
+
+# --- Package Managers ---
+vcpkg_installed/
+conan/
+
 .venv/
-venv/
-env/
+.env
+.env.local
+config/.env.ducklake
 
-# Output files
-outputs/*.csv
-outputs/*.jsonl
-*.csv
-*.jsonl
-parcel_embeddings.jsonl
-
-# Benchmark results
-*benchmark*.csv
-*results*.csv
+# CUDA/TensorRT specific
+*.cubin
+*.fatbin
+*.ptx
+*.engine.cache
+*.nvprof
+*.nsys-rep
+*.qdrep
+*.sqlite
 
 # Python
 __pycache__/
 *.py[cod]
 *$py.class
-*.so
-.Python
-*.egg-info/
-dist/
-build/
 
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
+# Temporary files
+*.tmp
+*.temp
+tmp/
+temp/
 
-# OS
-.DS_Store
-Thumbs.db
-
-# Logs
-*.log
-
-# Model cache (large files)
-.cache/
-models/
+# Keep model directories but ignore contents
+onnx/*
+engines/*
+deps/*
