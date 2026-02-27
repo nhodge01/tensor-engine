@@ -1,13 +1,13 @@
 cmake_minimum_required(VERSION 3.18)
-project(MiniLM_Inference LANGUAGES CXX CUDA) # Enable CUDA language!
+project(MiniLM_Inference LANGUAGES CXX)  # No more CUDA!
 
 set(CMAKE_CXX_STANDARD 17)
-set(CMAKE_CUDA_STANDARD 17)
-
-set(CMAKE_CUDA_ARCHITECTURES 89)
 
 find_package(Threads REQUIRED)
 find_package(OpenMP REQUIRED)
+
+# CUDA Runtime (still needed for TensorRT)
+find_package(CUDAToolkit REQUIRED)
 
 # Arrow/Parquet - use local build from deps
 set(ARROW_DIR "${CMAKE_CURRENT_SOURCE_DIR}/deps/arrow-cpp/cpp/build")
@@ -41,38 +41,41 @@ else()
     message(STATUS "Arrow not built in deps/arrow-cpp. Run build instructions first.")
 endif()
 
+# TensorRT
 find_library(NVINFER_LIB nvinfer)
 find_path(NVINFER_INC NvInfer.h)
 
+# Tokenizer
 set(TOK_DIR "${CMAKE_CURRENT_SOURCE_DIR}/deps/tokenizers-cpp")
 include_directories("${TOK_DIR}/include")
-include_directories("${CMAKE_CURRENT_SOURCE_DIR}/include/acrelab-gauss")
-include_directories("${CMAKE_CURRENT_SOURCE_DIR}/include")
+include_directories("${CMAKE_CURRENT_SOURCE_DIR}/src/include")
 link_directories("${TOK_DIR}/build")
 link_directories("${TOK_DIR}/build/tokenizers")
 link_directories("${TOK_DIR}/target/release")
-link_directories(/opt/cuda/lib64)
 
 # DuckDB
 set(DUCKDB_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../acrelab-gauss-cpp/build/_deps/duckdb_lib-src")
 include_directories(${DUCKDB_DIR})
 link_directories(${DUCKDB_DIR})
 
+# Main executable - now using main.cpp instead of main.cu
 add_executable(embed_test
-    src/core/main.cu
-    src/core/lake.cpp
+    src/core/main.cpp  # Changed from .cu to .cpp
     src/core/arrow_parquet_writer.cpp
     src/core/harvester_worker.cpp
-) # Include all core components
+)
 
-target_include_directories(embed_test PRIVATE ${NVINFER_INC})
+target_include_directories(embed_test PRIVATE
+    ${NVINFER_INC}
+    ${CUDAToolkit_INCLUDE_DIRS}
+)
 
 target_link_libraries(embed_test
     ${NVINFER_LIB}
     tokenizers_cpp
     tokenizers_c
     duckdb
-    cudart
+    CUDA::cudart  # CUDA runtime for TensorRT
     dl
     pthread
     OpenMP::OpenMP_CXX
@@ -105,11 +108,6 @@ target_link_libraries(embed_test
     z
 )
 
-# Link Arrow/Parquet if found (commented out - using static libs instead)
-# if(Arrow_FOUND AND Parquet_FOUND)
-#     target_link_libraries(embed_test Arrow::arrow_shared Parquet::parquet_shared)
-# endif()
-
 # Tokenizer benchmark executable
 add_executable(tokenize_bench src/benchmarks/tokenize_bench.cpp)
 
@@ -117,14 +115,6 @@ target_link_libraries(tokenize_bench
     tokenizers_cpp
     tokenizers_c
     OpenMP::OpenMP_CXX
-    pthread
-)
-
-# CUDA kernels test executable
-add_executable(test_cuda_kernels src/benchmarks/test_cuda_kernels.cu)
-
-target_link_libraries(test_cuda_kernels
-    cudart
     pthread
 )
 
@@ -166,3 +156,5 @@ if(Arrow_FOUND AND Parquet_FOUND)
 else()
     message(STATUS "sink_benchmark will NOT be built (Arrow not found)")
 endif()
+
+# Note: Removed test_cuda_kernels since we no longer have custom CUDA kernels
