@@ -103,14 +103,16 @@ int main() {
     // 1. Initialize DuckLake connection (The beautiful 1-liner)
     DuckLake lake;
 
-    // 2. Check required S3 output path
-    const char* s3_path_env = std::getenv("S3_OUTPUT_PATH");
-    if (!s3_path_env || strlen(s3_path_env) == 0) {
-        std::cerr << "ERROR: S3_OUTPUT_PATH environment variable is required!" << std::endl;
+    // 2. Check S3 output configuration
+    if (config.enable_s3_output && config.s3_output_path.empty()) {
+        std::cerr << "ERROR: S3 output is enabled but no path specified in config!" << std::endl;
         return 1;
     }
-    std::string s3_output_path(s3_path_env);
-    std::cout << "Output will be written to: " << s3_output_path << std::endl;
+    if (config.enable_s3_output) {
+        std::cout << "S3 output enabled. Will write to: " << config.s3_output_path << std::endl;
+    } else {
+        std::cout << "S3 output disabled." << std::endl;
+    }
 
     // 3. Load Tokenizer
     auto tokenizer = acrelab::TokenizerWrapper::FromFile(config.vocab_path);
@@ -161,7 +163,7 @@ int main() {
 
         // 7. Start Harvester
         std::cout << "Spawning Harvester thread with S3/MinIO output..." << std::endl;
-        acrelab::HarvesterWorker harvester(harvester_queue, free_queue, total_queries_processed, s3_output_path, hidden_dim);
+        acrelab::HarvesterWorker harvester(harvester_queue, free_queue, total_queries_processed, config.s3_output_path, hidden_dim);
         std::thread harvester_thread([&harvester]() { harvester.Run(); });
 
         // 8. Start Dual GPU Engines
