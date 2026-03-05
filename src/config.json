@@ -1,9 +1,17 @@
 {
-  "embedding_dim": 384,
-  "max_tokens": 32,
+  "tokenizer_type": "byt5",
+  "max_tokens": 128,
   "batch_size": 256,
-  "engine_path": "engines/all-MiniLM-L6-v2/fp16/batch256_seq32_pooled.engine",
-  "vocab_path": "onnx/all-MiniLM-L6-v2/tokenizer.json",
-  "model_name": "sentence-transformers/all-MiniLM-L6-v2",
-  "onnx_path": "onnx/all-minilm-l6-v2/model_pooled.onnx"
+  "embedding_dim": 1472,
+  "engine_path": "engines/byt5-small/bf16/dynamic_batch1280_seq128.engine",
+  "vocab_path": "engines/byt5-small/vocab.txt",
+  "input_columns": [
+    "raw_owner_name_1",
+    "context_owner_name_2",
+    "raw_owner_names_concatenated",
+    "raw_address",
+    "context_both"
+  ],
+  "enable_s3_output": true,
+  "s3_output_path": "REDACTED_BUCKET/parcel_multi_vector_ByT5.parquet"
 }

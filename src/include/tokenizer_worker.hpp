@@ -5,27 +5,24 @@
 #include <vector>
 #include <cstring>
 #include <thread>
+#include <memory>
+#include "tokenizer_base.hpp"
+#include "byt5_tokenizer.hpp"
 #include "tokenizer_wrapper.hpp"
 #include "threadsafequeue.hpp"
 #include "batch_job.hpp"
+#include "config.hpp"
 
 namespace acrelab {
 
 /**
- * @brief Worker thread for tokenizing text batches
- *
- * This worker:
- * 1. Pulls BatchJob from tokenizer_queue (contains string_views from DuckDB)
- * 2. Tokenizes each text using the Rust tokenizer
- * 3. Writes tokens directly to pinned memory
- * 4. Pushes completed job to inference_queue
- *
- * Performance: ~60k texts/sec per thread, scales linearly to 8 threads
+ * @brief Worker thread for tokenizing text batches.
+ * Now agnostic to the underlying tokenizer implementation (ByT5 or HuggingFace).
  */
 class TokenizerWorker {
 public:
     TokenizerWorker(int thread_id,
-                    TokenizerWrapper* tokenizer,
+                    ITokenizer* tokenizer,
                     ThreadSafeQueue<BatchJob*>& input_queue,
                     ThreadSafeQueue<BatchJob*>& output_queue)
         : thread_id_(thread_id),
@@ -34,11 +31,10 @@ public:
           output_queue_(output_queue) {}
 
     /**
-     * @brief Main processing loop - blocks on queue
+     * @brief Main processing loop
      */
     void Run() {
         BatchJob* job;
-
         while (input_queue_.wait_and_loop(job)) {
             ProcessBatch(job);
             output_queue_.push(job);
@@ -46,105 +42,58 @@ public:
     }
 
     /**
-     * @brief Process a single batch of texts
+     * @brief Process a single batch using the polymorphic EncodeToBuffer.
+     * This handles the direct write from DuckDB string_views to CUDA Pinned Memory.
      */
     void ProcessBatch(BatchJob* job) {
-        for (int i = 0; i < job->valid_items; ++i) {
-            // Skip empty texts (NULLs from DB)
-            if (job->raw_texts[i].empty()) {
-                continue;
-            }
+        // CRITICAL FIX: Process ALL vectors (valid_items * num_concats)
+        // Each physical row has num_concats vectors (e.g., 5 text perspectives)
+        const size_t total_sequences = job->valid_items * job->num_concats;
 
-            // Convert string_view to string for Rust FFI
-            // This is the unavoidable copy due to FFI boundary
-            std::string text(job->raw_texts[i]);
-
-            // Tokenize
-            auto ids = tokenizer_->Encode(text);
-
-            // Write to pinned memory with truncation
-            WriteTokensToPinnedMemory(job, i, ids);
-        }
-    }
-
-    /**
-     * @brief Optimized batch processing using EncodeBatch
-     * Use this if the tokenizer supports efficient batch encoding
-     */
-    void ProcessBatchOptimized(BatchJob* job) {
-        // Collect non-empty texts
-        std::vector<std::string> texts;
-        std::vector<int> indices;
-
-        for (int i = 0; i < job->valid_items; ++i) {
-            if (!job->raw_texts[i].empty()) {
-                texts.emplace_back(job->raw_texts[i]);
-                indices.push_back(i);
-            }
-        }
-
-        if (texts.empty()) return;
-
-        // Batch encode
-        auto all_ids = tokenizer_->EncodeBatch(texts);
-
-        // Write results
-        for (size_t i = 0; i < all_ids.size(); ++i) {
-            WriteTokensToPinnedMemory(job, indices[i], all_ids[i]);
+        for (size_t i = 0; i < total_sequences; ++i) {
+            // EncodeToBuffer handles empty strings, truncation, and padding internally
+            tokenizer_->EncodeToBuffer(
+                job->raw_texts[i],  // Now correctly iterates through ALL vectors
+                &job->pinned_input_ids[i * job->seq_len],
+                &job->pinned_attention_mask[i * job->seq_len],
+                job->seq_len
+            );
         }
     }
 
 private:
-    /**
-     * @brief Write tokens directly to pinned memory
-     * Handles truncation and padding
-     */
-    void WriteTokensToPinnedMemory(BatchJob* job,
-                                    int batch_idx,
-                                    const std::vector<int32_t>& ids) {
-        int offset = batch_idx * job->seq_len;
-        int write_len = std::min(static_cast<int>(ids.size()), job->seq_len);
-
-        // Write token IDs
-        for (int j = 0; j < write_len; ++j) {
-            job->pinned_input_ids[offset + j] = ids[j];
-            job->pinned_attention_mask[offset + j] = 1;
-        }
-
-        // Zero out remaining (padding)
-        for (int j = write_len; j < job->seq_len; ++j) {
-            job->pinned_input_ids[offset + j] = 0;
-            job->pinned_attention_mask[offset + j] = 0;
-        }
-    }
-
     int thread_id_;
-    TokenizerWrapper* tokenizer_;
+    ITokenizer* tokenizer_;
     ThreadSafeQueue<BatchJob*>& input_queue_;
     ThreadSafeQueue<BatchJob*>& output_queue_;
 };
 
 /**
- * @brief Factory function for spawning tokenizer workers
- *
- * Creates and manages a pool of tokenizer threads
+ * @brief Manages a pool of tokenizer threads and the lifecycle of the Tokenizer instance.
  */
 class TokenizerWorkerPool {
 public:
     TokenizerWorkerPool(int num_threads,
-                        const std::string& tokenizer_path,
+                        const ModelConfig& config,
                         ThreadSafeQueue<BatchJob*>& input_queue,
                         ThreadSafeQueue<BatchJob*>& output_queue)
         : input_queue_(input_queue),
           output_queue_(output_queue) {
 
-        // Load tokenizer (single instance, thread-safe)
-        tokenizer_ = TokenizerWrapper::FromFile(tokenizer_path);
-        if (!tokenizer_) {
-            throw std::runtime_error("Failed to load tokenizer from: " + tokenizer_path);
+        // --- THE GRACEFUL SWITCH ---
+        if (config.tokenizer_type == "byt5") {
+            tokenizer_ = std::make_unique<ByT5Tokenizer>();
+            std::cout << "[Pool] Initialized High-Performance ByT5 (C++)" << std::endl;
+        } else {
+            auto wrapper = TokenizerWrapper::FromFile(config.vocab_path);
+            if (!wrapper) {
+                throw std::runtime_error("Failed to load HuggingFace tokenizer: " + config.vocab_path);
+            }
+            tokenizer_ = std::move(wrapper);
+            std::cout << "[Pool] Initialized HuggingFace/Rust Tokenizer" << std::endl;
         }
 
-        // Create workers
+        // Create workers using the common interface
         workers_.reserve(num_threads);
         for (int i = 0; i < num_threads; ++i) {
             workers_.emplace_back(
@@ -153,9 +102,6 @@ public:
         }
     }
 
-    /**
-     * @brief Start all worker threads
-     */
     void Start() {
         threads_.reserve(workers_.size());
         for (auto& worker : workers_) {
@@ -163,21 +109,16 @@ public:
         }
     }
 
-    /**
-     * @brief Wait for all threads to complete
-     */
     void Join() {
         for (auto& t : threads_) {
-            if (t.joinable()) {
-                t.join();
-            }
+            if (t.joinable()) t.join();
         }
     }
 
     size_t NumWorkers() const { return workers_.size(); }
 
 private:
-    std::unique_ptr<TokenizerWrapper> tokenizer_;
+    std::unique_ptr<ITokenizer> tokenizer_; // Polymorphic pointer
     std::vector<TokenizerWorker> workers_;
     std::vector<std::thread> threads_;
     ThreadSafeQueue<BatchJob*>& input_queue_;

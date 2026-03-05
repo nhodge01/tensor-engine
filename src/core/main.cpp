@@ -23,26 +23,31 @@ using namespace std::chrono;
 void spigot_worker(duckdb::unique_ptr<duckdb::MaterializedQueryResult>& result,
                    std::vector<duckdb::unique_ptr<duckdb::DataChunk>>& chunk_vault,
                    ThreadSafeQueue<BatchJob*>& free_queue,
-                   ThreadSafeQueue<BatchJob*>& tokenizer_queue) {
+                   ThreadSafeQueue<BatchJob*>& tokenizer_queue,
+                   const ModelConfig& config) {
     BatchJob* job = nullptr;
     int job_idx = 0;
     size_t total_extracted = 0;
+    int num_vectors = config.input_columns.size();
 
-    std::cout << "Spigot: Starting ZERO-COPY extraction..." << std::endl;
+    // Mapping phase: Find indices of columns defined in config
+    std::vector<int> col_indices;
+
+    // DuckDB columns are in order of SELECT statement
+    // Column 0 is gid, columns 1-N are the input columns
+    for (size_t i = 0; i < config.input_columns.size(); i++) {
+        col_indices.push_back(i + 1);  // +1 because gid is at index 0
+    }
+
+    std::cout << "Spigot: Starting MULTI-VECTOR extraction (" << num_vectors << " vectors/row)..." << std::endl;
     auto start = std::chrono::high_resolution_clock::now();
 
     while (auto chunk = result->Fetch()) {
         if (!chunk || chunk->size() == 0) break;
+        if (!chunk->AllConstant()) chunk->Flatten();
 
-        if (!chunk->AllConstant()) {
-            chunk->Flatten();
-        }
-
-        auto& gid_validity = duckdb::FlatVector::Validity(chunk->data[0]);
-        auto& text_validity = duckdb::FlatVector::Validity(chunk->data[1]);
         auto gid_data = duckdb::FlatVector::GetData<int64_t>(chunk->data[0]);
-        auto text_data = duckdb::FlatVector::GetData<duckdb::string_t>(chunk->data[1]);
-
+        auto& gid_validity = duckdb::FlatVector::Validity(chunk->data[0]);
         size_t count = chunk->size();
 
         for (size_t i = 0; i < count; i++) {
@@ -51,12 +56,21 @@ void spigot_worker(duckdb::unique_ptr<duckdb::MaterializedQueryResult>& result,
                 job_idx = 0;
             }
 
+            // Set GID
             job->row_ids[job_idx] = gid_validity.RowIsValid(i) ? gid_data[i] : 0;
 
-            if (text_validity.RowIsValid(i)) {
-                job->raw_texts[job_idx] = std::string_view(text_data[i].GetData(), text_data[i].GetSize());
-            } else {
-                job->raw_texts[job_idx] = std::string_view();
+            // Extract all N versions for this GID
+            for (int v = 0; v < num_vectors; ++v) {
+                int col_idx = col_indices[v];
+                auto& text_validity = duckdb::FlatVector::Validity(chunk->data[col_idx]);
+                auto text_data = duckdb::FlatVector::GetData<duckdb::string_t>(chunk->data[col_idx]);
+
+                int slot = (job_idx * num_vectors) + v;
+                if (text_validity.RowIsValid(i)) {
+                    job->raw_texts[slot] = std::string_view(text_data[i].GetData(), text_data[i].GetSize());
+                } else {
+                    job->raw_texts[slot] = std::string_view();
+                }
             }
 
             job_idx++;
@@ -68,7 +82,6 @@ void spigot_worker(duckdb::unique_ptr<duckdb::MaterializedQueryResult>& result,
                 job = nullptr; 
             }
         }
-
         chunk_vault.push_back(std::move(chunk));
     }
 
@@ -76,12 +89,6 @@ void spigot_worker(duckdb::unique_ptr<duckdb::MaterializedQueryResult>& result,
         job->valid_items = job_idx;
         tokenizer_queue.push(job);
     }
-
-    auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
-        std::chrono::high_resolution_clock::now() - start).count();
-
-    std::cout << "Spigot: Extracted " << total_extracted << " rows in " << elapsed
-              << " seconds (" << (total_extracted / (elapsed + 0.001)) << " RPS)" << std::endl;
 
     tokenizer_queue.shutdown();
 }
@@ -115,17 +122,13 @@ int main() {
     }
 
     // 3. Load Tokenizer
-    auto tokenizer = acrelab::TokenizerWrapper::FromFile(config.vocab_path);
-    if (!tokenizer) {
-        std::cerr << "Failed to load tokenizer!" << std::endl;
-        return 1;
-    }
+    // auto tokenizer = acrelab::TokenizerWrapper::FromFile(config.vocab_path);
+    // if (!tokenizer) {
+    //     std::cerr << "Failed to load tokenizer!" << std::endl;
+    //     return 1;
+    // }
 
-    int batch_size = config.batch_size;
-    int seq_len = config.max_tokens;
-    int hidden_dim = config.embedding_dim;
-    int num_jobs_in_pool = 1500; 
-
+    
     // 4. Initialize the Queues
     ThreadSafeQueue<BatchJob*> free_queue;
     ThreadSafeQueue<BatchJob*> tokenizer_queue;
@@ -133,85 +136,105 @@ int main() {
     ThreadSafeQueue<BatchJob*> harvester_queue;
     std::atomic<int> total_queries_processed{0};
 
+
+    const int num_tokenizers = 16;
+    std::cout << "Initializing Tokenizer Pool: (" << config.tokenizer_type <<") with " << num_tokenizers << " threads..." << std::endl;
+    acrelab::TokenizerWorkerPool tokenizer_pool(
+        num_tokenizers,
+        config,
+        tokenizer_queue,
+        inference_queue
+    );
+
+    
+
+    int batch_size = config.batch_size;
+    int seq_len = config.max_tokens;
+    int hidden_dim = config.embedding_dim;
+    int num_jobs_in_pool = 1500; 
+
+    
+
     // 5. Pre-Allocate the Pinned Memory Pool
+    int num_vectors = config.input_columns.size();
     std::cout << "Allocating " << num_jobs_in_pool << " pinned memory structs..." << std::endl;
     std::vector<BatchJob*> job_pool;
     for (int i = 0; i < num_jobs_in_pool; ++i) {
-        auto job = new BatchJob(i, batch_size, seq_len, hidden_dim);
+        // Updated Constructor call!
+        auto job = new BatchJob(i, config.batch_size, num_vectors, config.max_tokens, config.embedding_dim);
         job_pool.push_back(job);
         free_queue.push(job);
     }
+    // 6. Updated SQL Query - MUST match config.input_columns exactly!
+        std::string query = R"(
+            SELECT
+                gid,
+                COALESCE(standard_owner_1_first_last_name, '') as raw_owner_name_1,
+                CASE
+                    WHEN standard_owner_2_first_last_name IS NOT NULL AND standard_owner_2_first_last_name != ''
+                    THEN 'Property Owner: ' || standard_owner_2_first_last_name
+                    ELSE 'Property Owner: '
+                END as context_owner_name_2,
+                CASE
+                    WHEN standard_owner_2_first_last_name IS NOT NULL AND standard_owner_2_first_last_name != ''
+                    THEN COALESCE(standard_owner_1_first_last_name, '') || ', ' || standard_owner_2_first_last_name
+                    ELSE COALESCE(standard_owner_1_first_last_name, '')
+                END as raw_owner_names_concatenated,
+                COALESCE(standard_mail_address, '') as raw_address,
+                'Property Owners: ' ||
+                CASE
+                    WHEN standard_owner_2_first_last_name IS NOT NULL AND standard_owner_2_first_last_name != ''
+                    THEN COALESCE(standard_owner_1_first_last_name, '') || ', ' || standard_owner_2_first_last_name
+                    ELSE COALESCE(standard_owner_1_first_last_name, '')
+                END || ' | Property Mailing Address: ' || COALESCE(standard_mail_address, '') as context_both
+            FROM lake.desoto_jrrtolkein.consolidated_parcel
+            WHERE state IN ('RI', 'AR')
+        )";
 
-    // 6. Query the database
-    std::string query = R"(
-        SELECT gid, concat_ws(' ', owner1_name, owner2_name, mail_address) as text
-        FROM lake.desoto_jrrtolkein.consolidated_parcel
-        WHERE state IN ('RI', 'AR')
-    )";
+        std::cout << "Executing query..." << std::endl;
+        auto result = lake.conn.Query(query);
 
-    std::cout << "Executing query..." << std::endl;
-    
-    // Execute using the connection from our new DuckLake object!
-    auto result = lake.conn.Query(query);
-
-    if (!result->HasError()) {
-        size_t total_rows_in_db = result->RowCount();
+        if (!result->HasError()) {
+            size_t total_rows_in_db = result->RowCount();
         std::cout << "Query returned " << total_rows_in_db << " rows" << std::endl;
 
         std::vector<duckdb::unique_ptr<duckdb::DataChunk>> chunk_vault;
         chunk_vault.reserve(total_rows_in_db / batch_size + 100);
 
-        // 7. Start Harvester
-        std::cout << "Spawning Harvester thread with S3/MinIO output..." << std::endl;
-        acrelab::HarvesterWorker harvester(harvester_queue, free_queue, total_queries_processed, config.s3_output_path, hidden_dim);
-        std::thread harvester_thread([&harvester]() { harvester.Run(); });
+        // 7. Start Harvester (Dynamic column names from config)
+        std::cout << "Spawning Harvester thread..." << std::endl;
+        std::thread harvester_thread = acrelab::CreateHarvesterThread(
+            harvester_queue, free_queue, total_queries_processed,
+            config.s3_output_path, config.embedding_dim, config.input_columns
+        );
 
         // 8. Start Dual GPU Engines
         std::cout << "Spawning GPU workers..." << std::endl;
         TensorEngine engine0(0, config.engine_path, config, inference_queue, harvester_queue);
         TensorEngine engine1(1, config.engine_path, config, inference_queue, harvester_queue);
-        
         engine0.start();
         engine1.start();
 
-        // 9. Start Tokenizers (Set to 16/24 based on your previous tuning!)
-        const int num_tokenizers = 16;
-        std::cout << "Spawning " << num_tokenizers << " tokenizer threads..." << std::endl;
-        std::vector<std::unique_ptr<acrelab::TokenizerWorker>> tokenizer_workers;
-        std::vector<std::thread> tokenizer_threads;
-
-        for (int i = 0; i < num_tokenizers; i++) {
-            auto worker = std::make_unique<acrelab::TokenizerWorker>(
-                i, tokenizer.get(), tokenizer_queue, inference_queue
-            );
-            tokenizer_workers.push_back(std::move(worker));
-        }
-
-        for (auto& worker : tokenizer_workers) {
-            tokenizer_threads.emplace_back([&worker]() { worker->Run(); });
-        }
+        // 9. Start Tokenizer Pool
+        tokenizer_pool.Start();
 
         // 10. Start the pipeline
         std::cout << "\n--- PIPELINE LIVE: Processing " << total_rows_in_db << " rows ---" << std::endl;
         auto start_time = std::chrono::high_resolution_clock::now();
 
-        // Blocks main thread
-        spigot_worker(result, chunk_vault, free_queue, tokenizer_queue);
+        // Blocks main thread until DB is drained. Passing config so it knows columns.
+        spigot_worker(result, chunk_vault, free_queue, tokenizer_queue, config);
 
-        // Wait for tokenizers to finish
-        for (auto& t : tokenizer_threads) {
-            t.join();
-        }
-
-        // Signal GPU workers to stop and wait
+        // --- Shutdown Sequence ---
+        tokenizer_pool.Join();
         inference_queue.shutdown();
         engine0.join();
         engine1.join();
 
-        // Signal harvester to stop
         harvester_queue.shutdown();
-        harvester_thread.join();
+        if (harvester_thread.joinable()) harvester_thread.join();
 
+        // ... [Final Statistics Print] ...
         // 11. Print final statistics
         auto end_time = std::chrono::high_resolution_clock::now();
         auto total_time_sec = std::chrono::duration_cast<std::chrono::seconds>(end_time - start_time).count();
