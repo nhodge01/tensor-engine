@@ -80,7 +80,7 @@ public:
             "    TYPE ducklake,"
             "    METADATA_PATH 'postgres:host=" + db_host + " port=" + db_port + 
             " dbname=" + db_name + " user=" + db_user + " password=" + db_pass + " sslmode=require',"
-            "    DATA_PATH 's3://REDACTED_BUCKET'"
+            "    DATA_PATH 's3://" + get_env_or_throw("S3_DATA_PATH") + "'"
             ");";
         execute(ducklake_query, "DuckLake Secret Creation");
 

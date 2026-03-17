@@ -29,13 +29,13 @@ namespace acrelab {
  * DB_NAME=mydb
  *
  * # MinIO Configuration
- * MINIO_ENDPOINT=REDACTED_ENDPOINT
- * MINIO_ACCESS_KEY="REDACTED_ACCESS_KEY"
- * MINIO_SECRET_KEY='REDACTED_SECRET_KEY'
+ * MINIO_ENDPOINT=your-minio-endpoint:9000
+ * MINIO_ACCESS_KEY="your-access-key"
+ * MINIO_SECRET_KEY='your-secret-key'
  *
  * # S3 Output Configuration
  * ENABLE_S3_OUTPUT=1
- * S3_OUTPUT_PATH=REDACTED_BUCKET/REDACTED_PATH
+ * S3_OUTPUT_PATH=your-bucket/path/to/output.parquet
  * ```
  */
 class EnvLoader {

@@ -13,5 +13,5 @@
     "context_both"
   ],
   "enable_s3_output": true,
-  "s3_output_path": "REDACTED_BUCKET/parcel_multi_vector_ByT5.parquet"
+  "s3_output_path": ""
 }
